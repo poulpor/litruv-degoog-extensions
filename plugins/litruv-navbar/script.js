@@ -27,6 +27,19 @@
 
   let _uptimeFetchPromise = null;
 
+  /** Shared fixed-position popup element rendered at body level to escape overflow clipping. @type {HTMLDivElement|null} */
+  let _uptimePopupEl = null;
+
+  /** @returns {HTMLDivElement} */
+  function getUptimePopupEl() {
+    if (!_uptimePopupEl) {
+      _uptimePopupEl = document.createElement("div");
+      _uptimePopupEl.className = "litruv-uptime-popup";
+      document.body.appendChild(_uptimePopupEl);
+    }
+    return _uptimePopupEl;
+  }
+
   /**
    * @param {string} uptimeUrl
    * @param {string} uptimeSlug
@@ -109,22 +122,48 @@
       const symbol = currentlyUp ? "✓" : "✗";
       badge.textContent = pct === 1 ? symbol : Math.floor(pct * 100) + "% " + symbol;
 
-      if (beats?.length) {
-        let popup = badge.querySelector(".litruv-uptime-popup");
-        if (!popup) {
-          popup = document.createElement("div");
-          badge.appendChild(popup);
-        }
-        popup.className = "litruv-uptime-popup";
+      // Downsample available beats to at most 24 pills (oldest → newest)
+      const allBeats = beats ?? [];
+      /** @type {Array<{status:number,ping?:number,time?:string}>} */
+      const displayBeats = allBeats.length <= 24
+        ? allBeats
+        : (() => {
+            const step = allBeats.length / 24;
+            return Array.from({ length: 24 }, (_, i) => allBeats[Math.floor(i * step)]);
+          })();
+
+      // Use a body-level fixed popup to escape the launcher's overflow clipping
+      const onEnter = () => {
+        const popup = getUptimePopupEl();
         popup.innerHTML = "";
-        for (const beat of beats) {
+        for (const beat of displayBeats) {
+          const cls = beat.status === 1 ? "up"
+            : beat.status === 0 ? "down"
+            : beat.status === 3 ? "maint" : "pending";
           const pill = document.createElement("span");
-          const cls = beat.status === 1 ? "up" : beat.status === 0 ? "down" : beat.status === 3 ? "maint" : "pending";
           pill.className = "litruv-uptime-pill litruv-uptime-pill--" + cls;
-          if (beat.time) pill.title = beat.time + (beat.ping ? " · " + beat.ping + "ms" : "");
+          if (beat.time) pill.title = beat.time + (beat.ping != null ? " · " + beat.ping + "ms" : "");
           popup.appendChild(pill);
         }
-      }
+        popup.style.display = "flex";
+        requestAnimationFrame(() => {
+          const rect = badge.getBoundingClientRect();
+          const pw = popup.offsetWidth;
+          const ph = popup.offsetHeight;
+          let left = rect.right - pw;
+          if (left < 4) left = 4;
+          if (left + pw > window.innerWidth - 4) left = window.innerWidth - pw - 4;
+          popup.style.left = left + "px";
+          popup.style.top = (rect.top - ph - 4) + "px";
+        });
+      };
+      const onLeave = () => { getUptimePopupEl().style.display = "none"; };
+      badge.removeEventListener("mouseenter", badge._uptimeEnter);
+      badge.removeEventListener("mouseleave", badge._uptimeLeave);
+      badge._uptimeEnter = onEnter;
+      badge._uptimeLeave = onLeave;
+      badge.addEventListener("mouseenter", onEnter);
+      badge.addEventListener("mouseleave", onLeave);
     });
   }
 
@@ -279,52 +318,6 @@
     return true;
   }
 
-  function replaceLogo() {
-    const h1 = document.querySelector(".logo-container .logo");
-    if (!h1) return;
-    const img = document.createElement("img");
-    img.src = "/plugins/litruv-navbar/logowhite_textonly.png";
-    img.alt = "logo";
-    img.className = "litruv-logo";
-    h1.parentNode.insertBefore(img, h1);
-  }
-
-  function replaceResultsLogo() {
-    const anchor = document.querySelector("a.results-logo");
-    if (!anchor || anchor.querySelector(".litruv-results-logo")) return;
-    const img = document.createElement("img");
-    img.src = "/plugins/litruv-navbar/logowhite_textonly.png";
-    img.alt = "logo";
-    img.className = "litruv-results-logo";
-    anchor.replaceChildren(img);
-  }
-
-  function watchNoResults() {
-    const observer = new MutationObserver(() => {
-      document.querySelectorAll(".no-results").forEach((el) => {
-        if (el.querySelector(".litruv-no-results-gif")) return;
-        const img = document.createElement("img");
-        img.src = "/plugins/litruv-navbar/images/what-huh.gif";
-        img.alt = "";
-        img.className = "litruv-no-results-gif";
-        el.appendChild(img);
-      });
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
-
-  function applyBranding() {
-    document.title = "Litruv";
-    let link = document.querySelector("link[rel~='icon']");
-    if (!link) {
-      link = document.createElement("link");
-      link.rel = "icon";
-      document.head.appendChild(link);
-    }
-    link.href = "/plugins/litruv-navbar/images/16px.png";
-    link.type = "image/png";
-  }
-
   async function loadConfig() {
     try {
       const res = await fetch(CONFIG_URL);
@@ -334,10 +327,6 @@
   }
 
   async function inject() {
-    applyBranding();
-    replaceResultsLogo();
-    watchNoResults();
-
     if (document.querySelector("#litruv-navbar")) return;
 
     const cfg = await loadConfig();
@@ -352,7 +341,6 @@
     }
 
     if (window.location.pathname === "/") {
-      replaceLogo();
       document.documentElement.classList.add("litruv-navbar-active");
     }
   }

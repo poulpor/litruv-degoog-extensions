@@ -176,21 +176,15 @@ body:has(.litruv-editor) #results-meta {
 
 .litruv-uptime-popup {
   display: none;
-  position: absolute;
-  bottom: calc(100% + 4px);
-  right: 0;
-  z-index: 200;
+  position: fixed;
+  z-index: 9999;
   background: var(--bg-light, #1e2433);
   border: 1px solid var(--border, rgba(255,255,255,0.12));
   border-radius: 6px;
   padding: 5px 6px;
   gap: 2px;
-  pointer-events: auto;
+  pointer-events: none;
   box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-}
-
-.litruv-uptime-badge:hover .litruv-uptime-popup {
-  display: flex;
 }
 
 .litruv-uptime-pill {
