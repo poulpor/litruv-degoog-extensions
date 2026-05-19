@@ -1,0 +1,529 @@
+/* Widen degoog's results column when the navbar editor is active */
+#results-main:has(.litruv-editor) {
+  max-width: 820px;
+}
+
+#results-layout:has(.litruv-editor) #sidebar-col,
+body:has(.litruv-editor) #results-meta {
+  display: none;
+}
+
+#litruv-navbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: 0.5rem;
+}
+
+.litruv-logo {
+  width: min(400px, 80%);
+  max-width: 100%;
+  display: block;
+}
+
+.litruv-results-logo {
+  width: 100px;
+  display: block;
+}
+
+.litruv-no-results-gif {
+  display: block;
+  margin: 1rem auto 0;
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+.logo-container .logo {
+  display: none;
+}
+
+.litruv-navbar-links {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+}
+
+.litruv-navbar-link {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.litruv-navbar-link:hover {
+  color: var(--text-primary);
+}
+
+/* Grid launcher button */
+.litruv-launcher-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.75rem;
+  padding: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.litruv-launcher-btn:hover,
+.litruv-launcher-btn--active {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* Popup */
+.litruv-launcher-popup {
+  display: none;
+  position: fixed;
+  top: 44px;
+  right: 1rem;
+  z-index: 100;
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  min-width: 220px;
+  max-width: 280px;
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  flex-direction: column;
+}
+
+.litruv-launcher-popup--open {
+  display: flex;
+}
+
+.litruv-launcher-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.litruv-launcher-section + .litruv-launcher-section {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.litruv-launcher-section-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  padding: 0 0.25rem;
+}
+
+.litruv-launcher-section-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+}
+
+.litruv-launcher-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0.625rem 0.25rem;
+  border-radius: 8px;
+  text-decoration: none;
+  gap: 0.375rem;
+  transition: background 0.15s;
+  min-width: 0;
+  width: 100%;
+}
+
+.litruv-launcher-tile:hover {
+  background: var(--bg-hover);
+}
+
+.litruv-launcher-tile-icon {
+  font-size: 1.625rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  position: relative;
+}
+
+.litruv-uptime-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -4px;
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 1px 3px;
+  border-radius: 3px;
+  color: #fff;
+  pointer-events: auto;
+  cursor: default;
+  z-index: 201;
+}
+
+.litruv-uptime-badge--green  { background: #16a34a; }
+.litruv-uptime-badge--yellow { background: #d97706; }
+.litruv-uptime-badge--red    { background: #dc2626; }
+
+.litruv-uptime-popup {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 0;
+  z-index: 200;
+  background: var(--bg-light, #1e2433);
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  border-radius: 6px;
+  padding: 5px 6px;
+  gap: 2px;
+  pointer-events: auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+
+.litruv-uptime-badge:hover .litruv-uptime-popup {
+  display: flex;
+}
+
+.litruv-uptime-pill {
+  width: 5px;
+  height: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.litruv-uptime-pill--up      { background: #16a34a; }
+.litruv-uptime-pill--down    { background: #dc2626; }
+.litruv-uptime-pill--maint   { background: #6366f1; }
+.litruv-uptime-pill--pending { background: #d97706; }
+
+.litruv-launcher-tile-icon-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.litruv-launcher-tile--static {
+  cursor: default;
+}
+
+.litruv-launcher-tile--static:hover {
+  background: none;
+}
+
+.litruv-launcher-tile-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-align: center;
+  line-height: 1.2;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.litruv-navbar-active .header {
+  top: 36px;
+}
+
+/* ── !navbar visual editor ───────────────────────────────────────────────── */
+
+.litruv-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 800px;
+  max-width: 100%;
+  padding: 30px 0;
+}
+
+.litruv-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.litruv-editor-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.litruv-editor-status {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  transition: color 0.2s;
+}
+
+.litruv-editor-status--ok  { color: #16a34a; }
+.litruv-editor-status--err { color: #dc2626; }
+
+.litruv-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.litruv-editor-card {
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.litruv-editor-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.875rem;
+  background: var(--bg-hover);
+  border-bottom: 1px solid var(--border);
+  border-radius: 9px 9px 0 0;
+  gap: 0.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  transition: border-radius 0.15s;
+}
+
+.litruv-editor-card-header--stuck {
+  border-radius: 0;
+}
+
+.litruv-editor-card-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.litruv-editor-card-btns {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.litruv-editor-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.litruv-editor-empty {
+  padding: 0.75rem 0.875rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Shared row base */
+.litruv-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid var(--border-light, rgba(255,255,255,0.06));
+}
+
+.litruv-editor-row:last-child {
+  border-bottom: none;
+}
+
+/* Quick-link row */
+.litruv-ql-row .litruv-input { flex: 1; }
+
+/* Section heading row */
+.litruv-svc-heading-row {
+  background: rgba(255,255,255,0.02);
+}
+
+.litruv-heading-badge {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.litruv-input--heading {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Service row */
+.litruv-svc-row { align-items: flex-start; }
+
+.litruv-svc-icon-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 36px;
+  flex-shrink: 0;
+  padding-top: 0.375rem;
+}
+
+.litruv-icon-preview {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 4px;
+  display: block;
+}
+
+.litruv-svc-fields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.litruv-svc-fields-row {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.litruv-svc-fields-row .litruv-input { flex: 1; min-width: 0; }
+
+.litruv-svc-fields-row--secondary .litruv-input {
+  font-size: 0.75rem;
+}
+
+.litruv-svc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  padding-top: 0.25rem;
+}
+
+.litruv-reorder-btns {
+  display: flex;
+  gap: 0.125rem;
+}
+
+/* Uptime Kuma card */
+.litruv-uptime-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 0.875rem;
+}
+
+.litruv-field {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.litruv-field-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+/* Shared input style */
+.litruv-input {
+  background: var(--bg-input, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  padding: 0.3125rem 0.5rem;
+  outline: none;
+  transition: border-color 0.15s;
+  min-width: 0;
+}
+
+.litruv-input:focus { border-color: var(--accent, #6366f1); }
+.litruv-input--small { font-size: 0.75rem; }
+.litruv-field .litruv-input { flex: 1; }
+
+/* Shared button style */
+.litruv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.3125rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.litruv-btn:hover { color: var(--text-primary); background: var(--bg-active, var(--bg-hover)); }
+.litruv-btn:disabled { opacity: 0.5; cursor: default; }
+
+.litruv-btn--primary {
+  background: var(--accent, #6366f1);
+  border-color: var(--accent, #6366f1);
+  color: #fff;
+}
+
+.litruv-btn--primary:hover { filter: brightness(1.1); }
+
+.litruv-btn--add {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.litruv-btn--icon {
+  padding: 0.2rem 0.375rem;
+  font-size: 0.75rem;
+  min-width: 24px;
+}
+
+.litruv-btn--del { color: #dc2626; border-color: transparent; background: none; }
+.litruv-btn--del:hover { background: rgba(220,38,38,0.12); color: #dc2626; }
+.litruv-btn--upload-icon {
+  position: absolute;
+  top: 0.375rem;
+  left: 0;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.litruv-svc-icon-wrap:hover .litruv-btn--upload-icon,
+.litruv-svc-icon-wrap--empty .litruv-btn--upload-icon {
+  opacity: 1;
+}
+.litruv-svc-icon-wrap--empty .litruv-btn--upload-icon {
+  background: none;
+  border: 1px dashed var(--color-border);
+  color: var(--color-text-secondary);
+}

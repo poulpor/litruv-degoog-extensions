@@ -31,6 +31,13 @@
       "description": "Replace the degoog logo with your own custom image - command: !logo",
       "version": "1.2.2",
       "type": "command"
+    },
+    {
+      "path": "plugins/litruv-navbar",
+      "name": "Litruv Navbar",
+      "description": "A custom navbar inspired by Google's app drawer - command: !navbar",
+      "version": "1.0.0",
+      "type": "command"
     }
   ],
   "engines": [
