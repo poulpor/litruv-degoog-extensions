@@ -16,3 +16,12 @@ Stolen + modified from - Jellyfin by fccview [fccview-degoog-extensions](https:/
 ## Link Target
 
 Sets the target attribute for links, useful for plugins like Custom New Tab Page
+
+## Litruv Nav Bar
+
+injects a persistent navigation bar into the search interface. 
+
+It provides quick-access links, a service launcher with icon support, and uptime status badges via Uptime Kuma. 
+
+Icons resolve automatically by fetching and caching from dashboard-icons or selfh.st CDN server-side. A built-in visual editor (!navbar) lets you manage everything without touching config files, add/reorder services, auto-detect icons from live service URLs!
+
