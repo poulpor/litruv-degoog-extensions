@@ -36,7 +36,7 @@
       "path": "plugins/litruv-navbar",
       "name": "Litruv Navbar",
       "description": "A custom navbar inspired by Google's app drawer - command: !navbar",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "type": "command"
     }
   ],
