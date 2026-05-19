@@ -29,7 +29,7 @@ Icons resolve automatically by fetching and caching from dashboard-icons or self
 
 <img width="991" height="652" alt="image" src="https://github.com/user-attachments/assets/c5d26d3d-50a2-48ef-a72d-d25de42430aa" />
 
-### Uptime Kuma setup:
+### Uptime Kuma setup
 Add a status page - I name mine 'general'
 Under each service you add in the status page, make sure the link is clickable
 
