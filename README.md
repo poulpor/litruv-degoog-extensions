@@ -19,9 +19,12 @@ Sets the target attribute for links, useful for plugins like Custom New Tab Page
 
 ## Litruv Nav Bar
 
+<img width="531" height="486" alt="image" src="https://github.com/user-attachments/assets/3656368a-724e-4145-bfea-e8e3313d5c2c" />
+
 injects a persistent navigation bar into the search interface. 
 
 It provides quick-access links, a service launcher with icon support, and uptime status badges via Uptime Kuma. 
 
 Icons resolve automatically by fetching and caching from dashboard-icons or selfh.st CDN server-side. A built-in visual editor (!navbar) lets you manage everything without touching config files, add/reorder services, auto-detect icons from live service URLs!
 
+<img width="991" height="652" alt="image" src="https://github.com/user-attachments/assets/c5d26d3d-50a2-48ef-a72d-d25de42430aa" />
