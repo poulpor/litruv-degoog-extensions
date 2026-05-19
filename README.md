@@ -32,6 +32,8 @@ Icons resolve automatically by fetching and caching from dashboard-icons or self
 ### Uptime Kuma setup:
 Add a status page - I name mine 'general'
 Under each service you add in the status page, make sure the link is clickable
+
 <img width="638" height="396" alt="image" src="https://github.com/user-attachments/assets/d075babe-bc38-4319-882e-115703252ae8" />
+
 In degoog, !navbar
 The 'Status URL' must be set to what the url is in uptime kuma for the service.
