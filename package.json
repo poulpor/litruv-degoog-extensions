@@ -8,35 +8,35 @@
       "path": "plugins/plex-search",
       "name": "Plex Search",
       "description": "Search for media in your Plex library",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "type": "command"
     },
     {
       "path": "plugins/auto-bang",
       "name": "Auto Bang",
       "description": "Autocomplete !bangs as you type",
-      "version": "1.1.3",
+      "version": "1.1.4",
       "type": "slot"
     },
     {
       "path": "plugins/link-target",
       "name": "Link Target",
       "description": "Sets the target attribute for links",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "type": "slot"
     },
     {
       "path": "plugins/custom-logo",
       "name": "Custom Logo",
       "description": "Replace the degoog logo with your own custom image - command: !logo",
-      "version": "1.2.2",
+      "version": "1.3.0",
       "type": "command"
     },
     {
       "path": "plugins/litruv-navbar",
       "name": "Litruv Navbar",
       "description": "A custom navbar inspired by Google's app drawer - command: !navbar",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "type": "command"
     }
   ],
