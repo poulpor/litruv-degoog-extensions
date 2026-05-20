@@ -16,6 +16,9 @@ let _pluginDir = "";
 /** @type {string} */
 let _pluginId = "";
 
+/** @type {typeof fetch} */
+let _fetch = fetch;
+
 /**
  * Persists the current in-memory state back to config.json.
  * @returns {Promise<void>}
@@ -74,10 +77,11 @@ export default {
     },
   ],
 
-  /** @param {{ dir: string, readFile: (name: string) => Promise<string> }} ctx */
+  /** @param {{ dir: string, readFile: (name: string) => Promise<string>, fetch: typeof fetch }} ctx */
   async init(ctx) {
     _pluginDir = ctx.dir;
     _pluginId  = ctx.dir.replace(/\\/g, "/").replace(/\/$/, "").split("/").pop() || "litruv-navbar";
+    if (ctx.fetch) _fetch = ctx.fetch;
     try {
       const raw  = await ctx.readFile("config.json");
       const data = JSON.parse(raw);
@@ -234,6 +238,29 @@ export default {
         } catch (e) {
           console.error("[litruv-navbar] detect-icon fetch failed:", e?.message ?? e);
           return Response.json({ slug: null, error: String(e?.message ?? e) });
+        }
+      },
+    },
+    {
+      method: "get",
+      path: "/uptime-proxy",
+      async handler() {
+        if (!_uptimeUrl || !_uptimeSlug) {
+          return Response.json({ error: "Uptime Kuma not configured" }, { status: 503 });
+        }
+        try {
+          const [cfgRes, hbRes] = await Promise.all([
+            _fetch(`${_uptimeUrl}/api/status-page/${encodeURIComponent(_uptimeSlug)}`),
+            _fetch(`${_uptimeUrl}/api/status-page/heartbeat/${encodeURIComponent(_uptimeSlug)}`),
+          ]);
+          if (!cfgRes.ok || !hbRes.ok) {
+            return Response.json({ error: "Uptime Kuma request failed" }, { status: 502 });
+          }
+          const [config, heartbeat] = await Promise.all([cfgRes.json(), hbRes.json()]);
+          return Response.json({ config, heartbeat });
+        } catch (e) {
+          console.error("[litruv-navbar] uptime-proxy fetch failed:", e?.message ?? e);
+          return Response.json({ error: String(e?.message ?? e) }, { status: 502 });
         }
       },
     },

@@ -54,12 +54,12 @@
     if (!uptimeUrl || !uptimeSlug || !tiles.length) return;
     let config, heartbeat;
     try {
-      const [cfgRes, hbRes] = await Promise.all([
-        fetch(`${uptimeUrl}/api/status-page/${uptimeSlug}`),
-        fetch(`${uptimeUrl}/api/status-page/heartbeat/${uptimeSlug}`),
-      ]);
-      if (!cfgRes.ok || !hbRes.ok) return;
-      [config, heartbeat] = await Promise.all([cfgRes.json(), hbRes.json()]);
+      const proxyUrl = `/api/plugin/${_PLUGIN_ID}/uptime-proxy`;
+      const res = await fetch(proxyUrl);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.error) return;
+      ({ config, heartbeat } = data);
     } catch { return; }
 
     const urlById = {};
