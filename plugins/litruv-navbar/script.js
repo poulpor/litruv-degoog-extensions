@@ -313,8 +313,13 @@
     const headerRight = document.querySelector(".header-right");
     if (!headerRight) return false;
     if (headerRight.querySelector("#litruv-navbar")) return true;
-    const settingsBtn = headerRight.querySelector("#nav-settings-top");
-    headerRight.insertBefore(bar, settingsBtn ?? null);
+    // Walk up from the settings button to find its direct child of headerRight,
+    // since insertBefore requires an immediate child as the reference node.
+    let refNode = /** @type {Element|null} */ (headerRight.querySelector("#nav-settings-top"));
+    while (refNode && refNode.parentElement !== headerRight) {
+      refNode = refNode.parentElement;
+    }
+    headerRight.insertBefore(bar, refNode ?? null);
     return true;
   }
 
