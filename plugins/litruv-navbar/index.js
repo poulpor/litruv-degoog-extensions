@@ -62,6 +62,7 @@ export default {
   name: "litruv Navbar",
   description: "Visual editor for the navbar config",
   trigger: "navbar",
+  isClientExposed: false,
 
   settingsSchema: [
     {

@@ -3,6 +3,7 @@
  */
 export default {
   name: "Link Target",
+  isClientExposed: false,
   description: "Override where result links open (_top, _blank, _parent, _self).",
   trigger: "__link_target",
 

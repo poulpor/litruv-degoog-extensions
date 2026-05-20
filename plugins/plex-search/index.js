@@ -185,6 +185,7 @@ export default {
   name: "Plex",
   description: "Search your Plex media library",
   trigger: "plex",
+  isClientExposed: false,
   aliases: ["px"],
   settingsSchema: [
     {

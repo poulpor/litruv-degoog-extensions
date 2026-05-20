@@ -1,11 +1,28 @@
 (function () {
   const API = "/api/plugin/custom-logo/logo";
 
+  // Immediately hide the OG logo to prevent flicker while the custom logo loads.
+  const _hideStyle = document.createElement("style");
+  _hideStyle.textContent = "#home-logo .logo, .results-logo { visibility: hidden !important; }";
+  document.head.appendChild(_hideStyle);
+
+  // Synchronously hide the search bar and buttons so they don't flash before the
+  // matrix intro reveals them. Removed immediately if intro is not 'matrix'.
+  const _searchHideStyle = document.createElement("style");
+  _searchHideStyle.textContent = "#search-bar-home, .button-row { clip-path: inset(0 100% 0 0); }";
+  document.head.appendChild(_searchHideStyle);
+
   /** @type {string|null|undefined} */
   let _cachedDataUrl = undefined;
 
   /** @type {boolean} */
   let hideLogoManagement = false;
+
+  /** @type {string} */
+  let _logoIntro = "none";
+
+  /** @type {boolean} */
+  let _introPlayed = false;
 
   /** @type {number} */
   let _searchMaxHeight = 100;
@@ -19,14 +36,25 @@
   /** @type {boolean} */
   let _dimensionsLoaded = false;
 
-  fetch("/api/plugin/custom-logo/settings")
-    .then((r) => r.json())
-    .then((d) => {
-      // Handle both boolean and string values
-      const val = d?.hideLogoManagement;
-      hideLogoManagement = val === true || val === "true";
-    })
-    .catch(() => {});
+  /** @type {Promise<void>|null} */
+  let _settingsPromise = null;
+
+  /**
+   * @returns {Promise<void>}
+   */
+  function loadSettings() {
+    if (_settingsPromise) return _settingsPromise;
+    _settingsPromise = fetch("/api/plugin/custom-logo/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        const val = d?.hideLogoManagement;
+        hideLogoManagement = val === true || val === "true";
+        const validIntros = ["none", "fade", "matrix"];
+        _logoIntro = validIntros.includes(d?.logoIntro) ? d.logoIntro : "none";
+      })
+      .catch(() => {});
+    return _settingsPromise;
+  }
 
   /**
    * @returns {Promise<void>}
@@ -68,8 +96,9 @@
   /**
    * Replaces logo elements on the page with the custom image.
    * @param {string} dataUrl
+   * @param {string} [intro]
    */
-  function applyLogo(dataUrl) {
+  function applyLogo(dataUrl, intro) {
     // Update any already-replaced custom logo images immediately.
     document.querySelectorAll(".custom-logo-img").forEach((el) => {
       const img = /** @type {HTMLImageElement} */ (el);
@@ -81,6 +110,10 @@
       { el: document.querySelector("#home-logo .logo"), search: false },
       { el: document.querySelector(".results-logo"), search: true },
     ];
+
+    /** @type {HTMLImageElement[]} */
+    const newImgs = [];
+
     for (const { el, search } of targets) {
       if (!el || el.dataset.customLogoApplied) continue;
       el.dataset.customLogoApplied = "1";
@@ -101,13 +134,327 @@
       } else {
         el.replaceWith(img);
       }
+      newImgs.push(img);
+    }
+
+    if (!_introPlayed && intro && intro !== "none" && newImgs.length > 0) {
+      _introPlayed = true;
+      newImgs.forEach((img) => _runIntro(img, intro));
     }
   }
 
+  /**
+   * @param {HTMLImageElement} img
+   * @param {string} type
+   */
+  function _runIntro(img, type) {
+    if (type === "fade")   _fadeIn(img);
+    else if (type === "matrix") _matrixIn(img);
+  }
+
+  /**
+   * Canvas fade-in animation. On the home page, fades in the search bar and
+   * buttons sequentially after the logo fade completes.
+   * @param {HTMLImageElement} img
+   */
+  async function _fadeIn(img) {
+    const searchBar = /** @type {HTMLElement|null} */ (document.querySelector("#search-bar-home"));
+    const buttonRow = /** @type {HTMLElement|null} */ (document.querySelector(".button-row"));
+    const isHome = !!searchBar;
+
+    await new Promise((resolve) => {
+      const duration = 650;
+      const start = performance.now();
+      img.style.opacity = "0";
+      /** @param {number} now */
+      function frame(now) {
+        const t = Math.min((now - start) / duration, 1);
+        img.style.opacity = String(t);
+        if (t < 1) requestAnimationFrame(frame);
+        else { img.style.opacity = ""; resolve(); }
+      }
+      requestAnimationFrame(frame);
+    });
+
+    if (isHome) {
+      await _fadeReveal(searchBar, 350);
+      await _fadeReveal(buttonRow, 280);
+      _searchHideStyle.remove();
+      if (searchBar) searchBar.style.clipPath = "";
+      if (buttonRow) buttonRow.style.clipPath = "";
+    }
+  }
+
+  /**
+   * Cyberpunk 2077-style glitch reveal. Logo materialises through chromatic aberration,
+   * TV static, and block corruption. On the home page the search bar and buttons then
+   * slide in sequentially with matching cyber style.
+   * @param {HTMLImageElement} img
+   */
+  async function _matrixIn(img) {
+    try { await img.decode(); } catch { return; }
+    const w = img.naturalWidth || 400;
+    const h = img.naturalHeight || 200;
+    const PAD = 100;
+
+    // Hide search elements on the home page for sequential reveal.
+    const searchBar = /** @type {HTMLElement|null} */ (document.querySelector("#search-bar-home"));
+    const buttonRow = /** @type {HTMLElement|null} */ (document.querySelector(".button-row"));
+    const isHome = !!searchBar;
+    if (isHome) {
+      [searchBar, buttonRow].forEach((el) => {
+        if (!el) return;
+        el.style.clipPath = "inset(0 100% 0 0)";
+      });
+    }
+
+    /**
+     * Pre-compute a single-channel canvas for cheap per-frame RGB split.
+     * @param {number} rMul @param {number} gMul @param {number} bMul
+     * @returns {HTMLCanvasElement}
+     */
+    const _makeChannel = (rMul, gMul, bMul) => {
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const x = /** @type {CanvasRenderingContext2D} */ (c.getContext("2d"));
+      x.drawImage(img, 0, 0, w, h);
+      const d = x.getImageData(0, 0, w, h);
+      for (let i = 0; i < d.data.length; i += 4) {
+        d.data[i]   = (d.data[i]   * rMul) | 0;
+        d.data[i+1] = (d.data[i+1] * gMul) | 0;
+        d.data[i+2] = (d.data[i+2] * bMul) | 0;
+      }
+      x.putImageData(d, 0, 0);
+      return c;
+    };
+
+    const redCh  = _makeChannel(1, 0, 0);
+    const cyanCh = _makeChannel(0, 1, 1);
+
+    // Calculate rendered pixel size from CSS max constraints so we can size the canvas correctly.
+    const isSearch = img.className.includes("--search");
+    const maxW = isSearch ? _searchMaxWidth  : _homeMaxWidth;
+    const maxH = isSearch ? _searchMaxHeight : _homeMaxHeight;
+    const scale     = Math.min(1, maxW / w, maxH / h);
+    const rendW     = Math.round(w * scale);
+    const rendH     = Math.round(h * scale);
+    const scaledPad = Math.round(PAD * scale);
+
+    const CW = w + PAD * 2;
+    const CH = h + PAD * 2;
+
+    const canvas = document.createElement("canvas");
+    canvas.width  = CW;
+    canvas.height = CH;
+    canvas.className = img.className;
+    // Override CSS size to include bleed zone; negative margin keeps layout footprint == img size.
+    canvas.style.cssText  = img.style.cssText;
+    canvas.style.width    = `${rendW + scaledPad * 2}px`;
+    canvas.style.height   = `${rendH + scaledPad * 2}px`;
+    canvas.style.maxWidth  = "none";
+    canvas.style.maxHeight = "none";
+    canvas.style.margin    = `-${scaledPad}px`;
+    canvas.style.display   = "block";
+
+    const parent = img.parentNode;
+    const next   = img.nextSibling;
+    if (!parent) return;
+    parent.removeChild(img);
+    parent.insertBefore(canvas, next);
+
+    const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext("2d"));
+    const R  = (/** @type {number} */ a, /** @type {number} */ b) => Math.random() * (b - a) + a;
+    const Ri = (/** @type {number} */ a, /** @type {number} */ b) => Math.floor(R(a, b));
+    const CORRUPT_COLORS = ["#00fff0", "#ff003c", "#ff00ff", "#ffffff", "#000000", "#ffff00"];
+    const duration = 900;
+    const start = performance.now();
+
+    // Run canvas glitch; resolves when the canvas is swapped back out.
+    await new Promise((resolve) => {
+      /** @param {number} now */
+      function frame(now) {
+      const t         = Math.min((now - start) / duration, 1);
+      const intensity = Math.pow(1 - t, 1.4);
+
+      ctx.clearRect(0, 0, CW, CH);
+
+      // --- BASE IMAGE centred at (PAD, PAD) — snaps in rather than fading slowly ---
+      ctx.globalAlpha = t < 0.08 ? 0 : Math.min(1, (t - 0.08) / 0.3);
+      ctx.drawImage(img, PAD, PAD, w, h);
+      ctx.globalAlpha = 1;
+
+      if (intensity > 0.02) {
+        // --- LARGE BLOCKY SLICE SHIFTS — bleed into PAD zone on each side ---
+        const numSlices = Ri(2, Math.ceil(intensity * 7) + 3);
+        for (let i = 0; i < numSlices; i++) {
+          const bh = R(h * 0.05, h * 0.35);
+          const sy = R(0, h - bh);
+          const dx = (Math.random() < 0.5 ? 1 : -1) * R(w * 0.04, w * 0.55) * intensity;
+          ctx.drawImage(img, 0, sy, w, bh, PAD + dx, PAD + sy, w, bh);
+        }
+
+        // --- RGB CHANNEL SPLIT — ghosts bleed into PAD zone ---
+        if (intensity > 0.06) {
+          const shift = R(w * 0.025, w * 0.09) * intensity;
+          ctx.globalCompositeOperation = "screen";
+          ctx.globalAlpha = Math.min(0.95, intensity * 0.9);
+          ctx.drawImage(redCh,  PAD + shift,          PAD, w, h);
+          ctx.drawImage(cyanCh, PAD - shift * 0.65,   PAD, w, h);
+          ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = "source-over";
+        }
+
+        // --- TV STATIC — fills entire canvas including bleed zone ---
+        if (intensity > 0.04) {
+          const noiseCount = Math.ceil(intensity * 200);
+          for (let i = 0; i < noiseCount; i++) {
+            const v = Ri(0, 256);
+            ctx.fillStyle   = `rgb(${v},${v},${v})`;
+            ctx.globalAlpha = R(0.25, 0.85);
+            ctx.fillRect(Ri(0, CW), Ri(0, CH), Ri(1, Math.ceil(intensity * 12) + 1), Ri(1, Math.ceil(intensity * 6) + 1));
+          }
+          ctx.globalAlpha = 1;
+        }
+
+        // --- CORRUPTION BLOCKS — allowed to bleed into PAD zone ---
+        const numCorrupt = Ri(0, Math.ceil(intensity * 5) + 1);
+        for (let i = 0; i < numCorrupt; i++) {
+          ctx.fillStyle   = CORRUPT_COLORS[Ri(0, CORRUPT_COLORS.length)];
+          ctx.globalAlpha = R(0.5, 1.0) * intensity;
+          ctx.fillRect(R(0, w + PAD), R(0, h + PAD), R(w * 0.06, w * 0.55), R(2, h * 0.12));
+        }
+        ctx.globalAlpha = 1;
+
+        // --- SCANLINES — full canvas width ---
+        if (intensity > 0.12 && Math.random() > 0.35) {
+          ctx.fillStyle = "rgba(0,0,0,0.55)";
+          const step = Ri(2, 5);
+          for (let y = 0; y < CH; y += step * 2) {
+            ctx.fillRect(0, y, CW, step);
+          }
+        }
+
+        // --- FLASH — image area only ---
+        if (intensity > 0.6 && Math.random() > 0.88) {
+          ctx.fillStyle = Math.random() > 0.4 ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.95)";
+          ctx.fillRect(PAD, PAD, w, h);
+        }
+      }
+
+      if (t < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        if (canvas.parentNode) {
+          canvas.parentNode.insertBefore(img, canvas);
+          canvas.remove();
+        }
+        resolve();
+      }
+    }
+
+    requestAnimationFrame(frame);
+  });
+
+    // Sequential UI reveals on the home page.
+    if (isHome) {
+      await _cyberReveal(searchBar, 150);
+      await _cyberReveal(buttonRow, 120);
+      // Stylesheet is no longer needed; clear inline overrides too.
+      _searchHideStyle.remove();
+      if (searchBar) searchBar.style.clipPath = "";
+      if (buttonRow) buttonRow.style.clipPath = "";
+    }
+  }
+
+  /**
+   * Fade-in reveal for the search bar / buttons during the fade intro.
+   * Un-clips the element and fades opacity 0 → 1.
+   * @param {HTMLElement|null} el
+   * @param {number} duration
+   * @returns {Promise<void>}
+   */
+  function _fadeReveal(el, duration) {
+    if (!el) return Promise.resolve();
+    return new Promise((resolve) => {
+      // Un-clip while invisible, then fade in.
+      el.style.clipPath = "inset(0 0% 0 0)";
+      el.style.opacity  = "0";
+      const start = performance.now();
+      /** @param {number} now */
+      function frame(now) {
+        const t = Math.min((now - start) / duration, 1);
+        el.style.opacity = String(t);
+        if (t < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          el.style.opacity  = "";
+          // Keep clip-path fully open rather than clearing; the stylesheet rule
+          // would re-hide the element if we cleared before _searchHideStyle is removed.
+          el.style.clipPath = "inset(0 0% 0 0)";
+          resolve();
+        }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  /**
+   * Cyberpunk horizontal-wipe reveal: a cyan scanner line sweeps left-to-right,
+   * unclipping the element as it goes. Sharp, fast, no filter garbage.
+   * @param {HTMLElement|null} el
+   * @param {number} duration
+   * @returns {Promise<void>}
+   */
+  function _cyberReveal(el, duration) {
+    if (!el) return Promise.resolve();
+    return new Promise((resolve) => {
+      const rect = el.getBoundingClientRect();
+
+      // Cyan scanner line that physically sweeps across the element.
+      const scanner = document.createElement("div");
+      scanner.style.cssText = [
+        "position:fixed",
+        `top:${rect.top - 4}px`,
+        `left:${rect.left}px`,
+        `width:3px`,
+        `height:${rect.height + 8}px`,
+        "background:linear-gradient(to bottom,transparent 0%,#00fff0 35%,#ffffff 50%,#00fff0 65%,transparent 100%)",
+        "box-shadow:0 0 14px 6px rgba(0,255,240,0.7)",
+        "pointer-events:none",
+        "z-index:9999",
+      ].join(";");
+      document.body.appendChild(scanner);
+
+      const start = performance.now();
+      /** @param {number} now */
+      function frame(now) {
+        const t     = Math.min((now - start) / duration, 1);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.style.clipPath      = `inset(0 ${((1 - eased) * 100).toFixed(1)}% 0 0)`;
+        scanner.style.left     = `${rect.left + eased * rect.width}px`;
+
+        if (t < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          // Set to fully-open rather than clearing, so the stylesheet rule can't re-hide.
+          el.style.clipPath = "inset(0 0% 0 0)";
+          scanner.remove();
+          resolve();
+        }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
   async function init() {
-    await loadDimensions();
+    await Promise.all([loadDimensions(), loadSettings()]);
     const dataUrl = await fetchLogo();
-    if (dataUrl) applyLogo(dataUrl);
+    if (dataUrl) applyLogo(dataUrl, _logoIntro);
+    // If the sequenced intros aren't running, unhide search elements immediately.
+    if (!dataUrl || !_logoIntro.match(/^(matrix|fade)$/)) _searchHideStyle.remove();
+    // Remove the logo hide style — if logo was applied, OG elements are replaced;
+    // if not, restore OG logo visibility.
+    _hideStyle.remove();
   }
 
   /**

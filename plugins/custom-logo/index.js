@@ -43,6 +43,7 @@ const _saveDimensions = async (dims) => {
 };
 
 let hideLogoManagement = false;
+let logoIntro = "none";
 let settingsLoaded = false;
 
 /**
@@ -60,6 +61,8 @@ const _loadSettings = async () => {
       const val = pluginSettings.hideLogoManagement;
       // Handle both boolean and string values
       hideLogoManagement = val === true || val === "true";
+      const validIntros = ["none", "fade", "matrix"];
+      logoIntro = validIntros.includes(pluginSettings.logoIntro) ? pluginSettings.logoIntro : "none";
     }
   } catch {
     // Settings file doesn't exist or can't be read, use default
@@ -73,6 +76,7 @@ export default {
   name: "Custom Logo",
   description: "Replace the degoog logo with your own image. Use !logo in the search bar to upload.",
   trigger: "logo",
+  isClientExposed: false,
 
   settingsSchema: [
     {
@@ -82,12 +86,22 @@ export default {
       default: false,
       description: "Prevent users from uploading or changing the logo (useful for public instances).",
     },
+    {
+      key: "logoIntro",
+      label: "Logo intro animation",
+      type: "select",
+      options: ["none", "fade", "matrix"],
+      default: "none",
+      description: "Canvas animation played when the custom logo first appears on the page.",
+    },
   ],
 
   configure(settings) {
     const val = settings?.hideLogoManagement;
     // Handle both boolean and string values
     hideLogoManagement = val === true || val === "true";
+    const validIntros = ["none", "fade", "matrix"];
+    logoIntro = validIntros.includes(settings?.logoIntro) ? settings.logoIntro : "none";
     settingsLoaded = true;
   },
 
@@ -180,7 +194,7 @@ export default {
       path: "/settings",
       handler: async () => {
         await _loadSettings();
-        return new Response(JSON.stringify({ hideLogoManagement }), {
+        return new Response(JSON.stringify({ hideLogoManagement, logoIntro }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });

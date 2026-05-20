@@ -3,6 +3,7 @@
  */
 export default {
   name: "Auto Bang",
+  isClientExposed: false,
   description: "Type ! in the search box to get instant command suggestions as you type.",
   trigger: "autobang",
   settingsSchema: [
