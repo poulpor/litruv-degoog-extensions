@@ -1,6 +1,6 @@
 # Litruv degoog Plugins
 
-A small pile of plugins for [degoog](https://github.com/degoog/degoog?utm_source=chatgpt.com).
+A small pile of plugins for [degoog](https://github.com/degoog/degoog).
 Built to make the search UI a bit more useful.
 
 ---
