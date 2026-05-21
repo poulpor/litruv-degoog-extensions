@@ -4,6 +4,9 @@ let _quickLinks = [];
 /** @type {Array<object>} */
 let _services = [];
 
+/** @type {Array<{label: string, url: string, icon?: string}>} */
+let _shortcuts = [];
+
 /** @type {string} */
 let _uptimeUrl = "";
 
@@ -28,7 +31,7 @@ async function saveDataFile() {
     const { writeFile } = await import("node:fs/promises");
     await writeFile(
       _pluginDir + "/config.json",
-      JSON.stringify({ quickLinks: _quickLinks, services: _services, uptimeUrl: _uptimeUrl, uptimeSlug: _uptimeSlug }, null, 2),
+      JSON.stringify({ quickLinks: _quickLinks, services: _services, shortcuts: _shortcuts, uptimeUrl: _uptimeUrl, uptimeSlug: _uptimeSlug }, null, 2),
     );
   } catch (e) {
     console.error("[litruv-navbar] Failed to save config.json:", e);
@@ -87,6 +90,7 @@ export default {
       const data = JSON.parse(raw);
       if (Array.isArray(data.quickLinks)) _quickLinks = data.quickLinks;
       if (Array.isArray(data.services))   _services   = data.services;
+      if (Array.isArray(data.shortcuts))  _shortcuts  = data.shortcuts;
       if (data.uptimeUrl)  _uptimeUrl  = data.uptimeUrl;
       if (data.uptimeSlug) _uptimeSlug = data.uptimeSlug;
     } catch { /* config.json missing or unparseable — settings will fill the gaps */ }
@@ -109,6 +113,7 @@ export default {
         return Response.json({
           quickLinks: _quickLinks,
           services:   _services,
+          shortcuts:  _shortcuts,
           uptimeUrl:  _uptimeUrl,
           uptimeSlug: _uptimeSlug,
         });
@@ -280,6 +285,7 @@ export default {
         }
         if (Array.isArray(body.quickLinks))      _quickLinks = body.quickLinks;
         if (Array.isArray(body.services))         _services   = body.services;
+        if (Array.isArray(body.shortcuts))        _shortcuts  = body.shortcuts;
         if (typeof body.uptimeUrl  === "string")  _uptimeUrl  = body.uptimeUrl;
         if (typeof body.uptimeSlug === "string")  _uptimeSlug = body.uptimeSlug;
         await saveDataFile();
@@ -309,6 +315,13 @@ export default {
         <button class="litruv-btn litruv-btn--add" id="litruv-add-ql">+ Link</button>
       </div>
       <div id="litruv-ql-list" class="litruv-editor-list"></div>
+    </div>
+    <div class="litruv-editor-card">
+      <div class="litruv-editor-card-header">
+        <h3 class="litruv-editor-card-title">Shortcuts</h3>
+        <button class="litruv-btn litruv-btn--add" id="litruv-add-sc">+ Shortcut</button>
+      </div>
+      <div id="litruv-sc-list" class="litruv-editor-list"></div>
     </div>
     <div class="litruv-editor-card">
       <div class="litruv-editor-card-header">

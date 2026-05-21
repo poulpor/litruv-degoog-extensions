@@ -194,6 +194,86 @@
   }
 
   /**
+   * Fetches the best icon slug/URL for a given site URL via the detect-icon API.
+   * @param {string} url
+   * @returns {Promise<string>}
+   */
+  async function detectShortcutIcon(url) {
+    try {
+      const res = await fetch(`/api/plugin/${_PLUGIN_ID}/detect-icon?url=${encodeURIComponent(url)}`);
+      if (!res.ok) return "";
+      const data = await res.json();
+      if (data.slug) return resolveIcon(data.slug);
+      if (data.icon) return String(data.icon);
+      return "";
+    } catch { return ""; }
+  }
+
+  /**
+   * Builds a Firefox-style shortcuts grid for the homepage.
+   * @param {Array<{label: string, url: string, icon?: string}>} items
+   * @returns {HTMLElement}
+   */
+  function buildShortcuts(items) {
+    const wrap = document.createElement("div");
+    wrap.id = "litruv-shortcuts";
+    wrap.className = "litruv-shortcuts";
+
+    for (const item of items) {
+      const a = document.createElement("a");
+      a.href = item.url;
+      a.className = "litruv-shortcut-tile";
+      a.title = item.label;
+
+      const iconWrap = document.createElement("span");
+      iconWrap.className = "litruv-shortcut-icon";
+
+      const letter = document.createElement("span");
+      letter.className = "litruv-shortcut-icon-letter";
+      letter.textContent = (item.label[0] ?? "?").toUpperCase();
+      iconWrap.appendChild(letter);
+
+      const img = document.createElement("img");
+      img.className = "litruv-shortcut-icon-img";
+      img.alt = item.label;
+      img.style.display = "none";
+      img.onload = () => { img.style.display = ""; letter.style.display = "none"; };
+      img.onerror = () => { img.style.display = "none"; letter.style.display = ""; };
+      iconWrap.appendChild(img);
+
+      const label = document.createElement("span");
+      label.className = "litruv-shortcut-label";
+      label.textContent = item.label;
+
+      a.appendChild(iconWrap);
+      a.appendChild(label);
+      wrap.appendChild(a);
+
+      const resolved = resolveIcon(item.icon ?? "");
+      if (resolved) {
+        img.src = resolved;
+      } else {
+        detectShortcutIcon(item.url).then(src => { if (src) img.src = src; });
+      }
+    }
+
+    return wrap;
+  }
+
+  /**
+   * Injects the shortcuts bar below the homepage search form.
+   * @param {HTMLElement} shortcuts
+   * @returns {boolean}
+   */
+  function injectShortcuts(shortcuts) {
+    if (document.getElementById("litruv-shortcuts")) return true;
+    const form = document.querySelector("#main_form") ?? document.querySelector("form[action='/search']");
+    if (!form) return false;
+    form.insertAdjacentElement("afterend", shortcuts);
+    return !!document.getElementById("litruv-shortcuts");
+  }
+
+  /**
    * @param {Array<{label: string, url: string}>} QUICK_LINKS
    * @param {Array<object>} LAUNCHER_SERVICES
    * @param {string} uptimeUrl
@@ -347,6 +427,13 @@
 
     if (window.location.pathname === "/") {
       document.documentElement.classList.add("litruv-navbar-active");
+    const shortcuts = buildShortcuts(cfg.shortcuts ?? []);
+    if (!injectShortcuts(shortcuts)) {
+      const waitObs2 = new MutationObserver(() => {
+        if (injectShortcuts(shortcuts)) waitObs2.disconnect();
+      });
+      waitObs2.observe(document.body, { childList: true, subtree: true });
+    }
     }
   }
 
@@ -387,6 +474,8 @@
     let qlData = [];
     /** @type {Array<object>} */
     let svcData = [];
+    /** @type {Array<{label: string, url: string, icon?: string}>} */
+    let shortcutData = [];
 
     /**
      * @param {string} s
@@ -484,6 +573,162 @@
       });
     }
 
+    function renderShortcuts() {
+      const list = document.getElementById("litruv-sc-list");
+      if (!list) return;
+      list.innerHTML = "";
+      if (!shortcutData.length) {
+        const empty = document.createElement("div");
+        empty.className = "litruv-editor-empty";
+        empty.textContent = "No shortcuts yet.";
+        list.appendChild(empty);
+        return;
+      }
+      shortcutData.forEach((sc, i) => {
+        const row = document.createElement("div");
+        row.className = "litruv-editor-row litruv-svc-row";
+
+        const iconWrap = document.createElement("div");
+        iconWrap.className = "litruv-svc-icon-wrap";
+        const preview = makeIconPreview(sc.icon ?? "");
+        const _origUpdate = preview._update.bind(preview);
+        preview._update = (val) => {
+          _origUpdate(val);
+          iconWrap.classList.toggle("litruv-svc-icon-wrap--empty", preview.style.visibility === "hidden");
+        };
+        iconWrap.classList.toggle("litruv-svc-icon-wrap--empty", preview.style.visibility === "hidden");
+
+        const fileInput = document.createElement("input");
+        fileInput.type = "file";
+        fileInput.accept = "image/png,image/jpeg,image/svg+xml,image/webp,image/gif";
+        fileInput.style.display = "none";
+        fileInput.onchange = async () => {
+          const f = fileInput.files?.[0];
+          if (!f) return;
+          const fd = new FormData();
+          fd.append("icon", f);
+          try {
+            const res = await fetch(`${API}/upload-icon`, { method: "POST", body: fd });
+            const data = await res.json();
+            if (data.ok) {
+              shortcutData[i].icon = data.filename;
+              preview._update(data.filename);
+              if (iconNameInput) iconNameInput.value = data.filename;
+            }
+          } catch {}
+        };
+
+        const uploadBtn = document.createElement("button");
+        uploadBtn.className = "litruv-btn litruv-btn--upload-icon";
+        uploadBtn.title = "Upload icon";
+        uploadBtn.textContent = "⬆";
+        uploadBtn.onclick = () => fileInput.click();
+
+        iconWrap.appendChild(preview);
+        iconWrap.appendChild(fileInput);
+        iconWrap.appendChild(uploadBtn);
+
+        const fields = document.createElement("div");
+        fields.className = "litruv-svc-fields";
+
+        const fieldsRow1 = document.createElement("div");
+        fieldsRow1.className = "litruv-svc-fields-row";
+
+        /** @type {HTMLInputElement | undefined} */
+        let iconNameInput;
+
+        const labelInput = document.createElement("input");
+        labelInput.className = "litruv-input";
+        labelInput.placeholder = "Label";
+        labelInput.value = sc.label ?? "";
+        labelInput.oninput = e => { shortcutData[i].label = /** @type {HTMLInputElement} */ (e.target).value; };
+
+        const urlInput = document.createElement("input");
+        urlInput.className = "litruv-input";
+        urlInput.type = "url";
+        urlInput.placeholder = "URL";
+        urlInput.value = sc.url ?? "";
+        urlInput.oninput = e => { shortcutData[i].url = /** @type {HTMLInputElement} */ (e.target).value; };
+        urlInput.addEventListener("blur", async () => {
+          const url = shortcutData[i].url;
+          if (!url || shortcutData[i].icon) return;
+          try {
+            const res = await fetch(`${API}/detect-icon?url=${encodeURIComponent(url)}`);
+            if (!res.ok) return;
+            const { slug } = await res.json();
+            if (slug) {
+              shortcutData[i].icon = slug;
+              preview._update(slug);
+              if (iconNameInput) iconNameInput.value = slug;
+            }
+          } catch {}
+        });
+
+        fieldsRow1.appendChild(labelInput);
+        fieldsRow1.appendChild(urlInput);
+
+        const fieldsRow2 = document.createElement("div");
+        fieldsRow2.className = "litruv-svc-fields-row litruv-svc-fields-row--secondary";
+
+        const detectBtn = document.createElement("button");
+        detectBtn.type = "button";
+        detectBtn.className = "litruv-btn litruv-btn--icon";
+        detectBtn.style.cssText = "background:none;border:none;box-shadow:none;";
+        detectBtn.title = "Re-detect icon from URL";
+        detectBtn.textContent = "↻";
+        detectBtn.onclick = async () => {
+          const url = shortcutData[i].url;
+          if (!url) return;
+          try {
+            const res = await fetch(`${API}/detect-icon?url=${encodeURIComponent(url)}`);
+            if (!res.ok) return;
+            const { slug } = await res.json();
+            if (slug) {
+              shortcutData[i].icon = slug;
+              preview._update(slug);
+              if (iconNameInput) iconNameInput.value = slug;
+            }
+          } catch {}
+        };
+
+        iconNameInput = document.createElement("input");
+        iconNameInput.className = "litruv-input litruv-input--small";
+        iconNameInput.type = "text";
+        iconNameInput.placeholder = "Icon (plex, sh-immich, URL…)";
+        iconNameInput.value = sc.icon ?? "";
+        iconNameInput.oninput = e => {
+          const val = /** @type {HTMLInputElement} */ (e.target).value;
+          shortcutData[i].icon = val;
+          preview._update(val);
+        };
+
+        const iconFieldGroup = document.createElement("div");
+        iconFieldGroup.style.cssText = "display:flex;flex:1;min-width:0;align-items:center;";
+        iconFieldGroup.appendChild(detectBtn);
+        iconFieldGroup.appendChild(iconNameInput);
+
+        fieldsRow2.appendChild(iconFieldGroup);
+
+        fields.appendChild(fieldsRow1);
+        fields.appendChild(fieldsRow2);
+
+        const actions = document.createElement("div");
+        actions.className = "litruv-svc-actions";
+        const delBtn = document.createElement("button");
+        delBtn.className = "litruv-btn litruv-btn--icon litruv-btn--del";
+        delBtn.title = "Delete";
+        delBtn.textContent = "✕";
+        delBtn.onclick = () => { shortcutData.splice(i, 1); renderShortcuts(); };
+        actions.appendChild(makeReorderBtns(i, shortcutData, renderShortcuts));
+        actions.appendChild(delBtn);
+
+        row.appendChild(iconWrap);
+        row.appendChild(fields);
+        row.appendChild(actions);
+        list.appendChild(row);
+      });
+    }
+
     function renderServices() {
       const list = document.getElementById("litruv-svc-list");
       if (!list) return;
@@ -551,11 +796,10 @@
               const res = await fetch(`${API}/upload-icon`, { method: "POST", body: fd });
               const data = await res.json();
               if (data.ok) {
-                // Store as absolute path so resolveIcon treats it as a direct URL
-                const path = `/plugins/${_PLUGIN_ID}/images/${data.filename}`;
-                svcData[i].icon = path;
-                preview._update(path);
-                if (iconNameInput) iconNameInput.value = path;
+                // Store bare filename — resolveIcon expands it via ICON_BASE
+                svcData[i].icon = data.filename;
+                preview._update(data.filename);
+                if (iconNameInput) iconNameInput.value = data.filename;
               }
             } catch {}
           };
@@ -593,7 +837,7 @@
           urlInput.oninput = e => { svcData[i].url = /** @type {HTMLInputElement} */ (e.target).value; };
           urlInput.addEventListener("blur", async () => {
             const url = svcData[i].url;
-            if (!url) return;
+            if (!url || svcData[i].icon) return;
             try {
               const res = await fetch(`${API}/detect-icon?url=${encodeURIComponent(url)}`);
               if (!res.ok) return;
@@ -611,6 +855,27 @@
 
           const fieldsRow2 = document.createElement("div");
           fieldsRow2.className = "litruv-svc-fields-row litruv-svc-fields-row--secondary";
+
+          const detectBtn = document.createElement("button");
+          detectBtn.type = "button";
+          detectBtn.className = "litruv-btn litruv-btn--icon";
+          detectBtn.style.cssText = "background:none;border:none;box-shadow:none;";
+          detectBtn.title = "Re-detect icon from URL";
+          detectBtn.textContent = "↻";
+          detectBtn.onclick = async () => {
+            const url = svcData[i].url;
+            if (!url) return;
+            try {
+              const res = await fetch(`${API}/detect-icon?url=${encodeURIComponent(url)}`);
+              if (!res.ok) return;
+              const { slug } = await res.json();
+              if (slug) {
+                svcData[i].icon = slug;
+                preview._update(slug);
+                if (iconNameInput) iconNameInput.value = slug;
+              }
+            } catch { /* ignore */ }
+          };
 
           const statusInput = document.createElement("input");
           statusInput.className = "litruv-input litruv-input--small";
@@ -633,8 +898,13 @@
             preview._update(val);
           };
 
+          const iconFieldGroup = document.createElement("div");
+          iconFieldGroup.style.cssText = "display:flex;flex:1;min-width:0;align-items:center;";
+          iconFieldGroup.appendChild(detectBtn);
+          iconFieldGroup.appendChild(iconNameInput);
+
           fieldsRow2.appendChild(statusInput);
-          fieldsRow2.appendChild(iconNameInput);
+          fieldsRow2.appendChild(iconFieldGroup);
 
           fields.appendChild(fieldsRow1);
           fields.appendChild(fieldsRow2);
@@ -661,18 +931,23 @@
     fetch(`${API}/config`)
       .then(r => r.json())
       .then(data => {
-        qlData  = data.quickLinks ?? [];
-        svcData = data.services   ?? [];
+        qlData       = data.quickLinks ?? [];
+        svcData      = data.services   ?? [];
+        shortcutData = data.shortcuts  ?? [];
         const urlEl  = document.getElementById("litruv-uptime-url");
         const slugEl = document.getElementById("litruv-uptime-slug");
         if (urlEl  instanceof HTMLInputElement) urlEl.value  = data.uptimeUrl  ?? "";
         if (slugEl instanceof HTMLInputElement) slugEl.value = data.uptimeSlug ?? "";
         renderQuickLinks();
         renderServices();
+        renderShortcuts();
       })
       .catch(() => {});
 
     if (addQlBtn) addQlBtn.onclick = () => { qlData.push({ label: "", url: "" }); renderQuickLinks(); };
+
+    const addScBtn = document.getElementById("litruv-add-sc");
+    if (addScBtn) addScBtn.onclick = () => { shortcutData.push({ label: "", url: "", icon: "" }); renderShortcuts(); };
 
     const addHeadingBtn = document.getElementById("litruv-add-heading");
     if (addHeadingBtn) addHeadingBtn.onclick = () => { svcData.push({ heading: "New Section" }); renderServices(); };
@@ -689,6 +964,7 @@
           const slugInput = document.getElementById("litruv-uptime-slug");
           const body = {
             quickLinks: qlData.map(l => ({ label: l.label ?? "", url: l.url ?? "" })),
+            shortcuts: shortcutData.map(s => ({ label: s.label ?? "", url: s.url ?? "", icon: s.icon ?? "" })),
             services: svcData.map(s => {
               if ("heading" in s) return { heading: s.heading ?? "" };
               /** @type {Record<string, string>} */

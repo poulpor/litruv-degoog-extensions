@@ -229,6 +229,75 @@ body:has(.litruv-editor) #results-meta {
   top: 36px;
 }
 
+/* ── Homepage shortcuts (Firefox new-tab style) ─────────────────────────── */
+
+.litruv-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  padding: 0 1rem;
+}
+
+.litruv-shortcut-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.625rem 0.5rem;
+  border-radius: 10px;
+  text-decoration: none;
+  width: 80px;
+  transition: background 0.15s;
+}
+
+.litruv-shortcut-tile:hover {
+  background: var(--bg-hover);
+}
+
+.litruv-shortcut-icon {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--bg-light);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.litruv-shortcut-icon-letter {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.litruv-shortcut-icon-img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+.litruv-shortcut-label {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── !navbar visual editor ───────────────────────────────────────────────── */
 
 .litruv-editor {
