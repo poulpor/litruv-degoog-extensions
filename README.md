@@ -21,6 +21,8 @@ Sets the target attribute for links, useful for plugins like Custom New Tab Page
 
 <img width="531" height="486" alt="image" src="https://github.com/user-attachments/assets/3656368a-724e-4145-bfea-e8e3313d5c2c" />
 
+<img width="664" height="267" alt="image" src="https://github.com/user-attachments/assets/ce30efb6-1cc8-4b02-a3d1-3898a767e5d2" />
+
 injects a persistent navigation bar into the search interface. 
 
 It provides quick-access links, a service launcher with icon support, and uptime status badges via Uptime Kuma. 
