@@ -1,19 +1,26 @@
-import { readFile, writeFile, mkdir, unlink } from "fs/promises";
+import { readFile, writeFile, mkdir, unlink, rename } from "fs/promises";
 import { join } from "path";
 
-const DATADIR = join(process.cwd(), "data", "custom-logo");
-const LOGOPATH = join(DATADIR, "logo.dat");
-const STOREPATH = join(DATADIR, "logos.json");
-const DIMSPATH = join(DATADIR, "dimensions.json");
+const DATA_DIR = join(process.cwd(), "data", "custom-logo");
+const LOGO_PATH = join(DATA_DIR, "logo.dat");
+const STORE_PATH = join(DATA_DIR, "logos.json");
+const DIMS_PATH = join(DATA_DIR, "dimensions.json");
 
-const DEFAULTDIMS = {
+const MAX_IMAGES = 32;
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_DATA_URL_CHARS = Math.ceil(MAX_IMAGE_BYTES * 1.37);
+const MAX_NAME_LENGTH = 120;
+const MIN_INTERVAL_SEC = 1;
+const MAX_INTERVAL_SEC = 86400;
+
+const DEFAULT_DIMS = {
   homeMaxHeight: 300,
   homeMaxWidth: 500,
   searchMaxHeight: 100,
   searchMaxWidth: 300,
 };
 
-const DEFAULTSTORE = {
+const DEFAULT_STORE = {
   images: [],
   rotationMode: "reload",
   intervalSec: 60,
@@ -21,80 +28,146 @@ const DEFAULTSTORE = {
   lastIndex: -1,
 };
 
+const VALID_ROTATION_MODES = ["reload", "interval"];
+const VALID_IMAGE_TYPES = new Set(["png", "jpeg", "jpg", "gif", "webp", "svg+xml"]);
+const DATA_URL_RE = /^data:image\/([a-z+]+);base64,([A-Za-z0-9+/=]+)$/;
+
 let hideLogoManagement = false;
 let logoIntro = "none";
 let settingsLoaded = false;
-
-const validRotationModes = ["reload", "interval"];
+let storeWriteQueue = Promise.resolve();
 
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+const json = (data, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+
+const escapeHtml = (value) =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const sanitizeName = (name) => {
+  const trimmed = String(name || "image")
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .trim()
+    .slice(0, MAX_NAME_LENGTH);
+  return trimmed || "image";
+};
+
+const isValidDataUrl = (dataUrl) => {
+  if (typeof dataUrl !== "string" || dataUrl.length > MAX_DATA_URL_CHARS) return false;
+  const match = DATA_URL_RE.exec(dataUrl);
+  if (!match) return false;
+  return VALID_IMAGE_TYPES.has(match[1]);
+};
+
+const clampInterval = (value, fallback = DEFAULT_STORE.intervalSec) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(MAX_INTERVAL_SEC, Math.max(MIN_INTERVAL_SEC, Math.floor(n)));
+};
+
+const withStoreLock = (fn) => {
+  const run = storeWriteQueue.then(fn, fn);
+  storeWriteQueue = run.catch(() => {});
+  return run;
+};
+
 async function loadLegacySingle() {
   try {
-    const data = await readFile(LOGOPATH, "utf-8");
-    if (typeof data === "string" && data.startsWith("data:image")) {
+    const data = await readFile(LOGO_PATH, "utf-8");
+    if (typeof data === "string" && data.startsWith("data:image") && data.length <= MAX_DATA_URL_CHARS) {
       return {
         id: uid(),
         name: "legacy-logo",
         dataUrl: data,
       };
     }
-  } catch {}
+  } catch {
+    // legacy file missing
+  }
   return null;
+}
+
+function normalizeStore(parsed) {
+  return {
+    ...DEFAULT_STORE,
+    ...parsed,
+    images: Array.isArray(parsed?.images)
+      ? parsed.images
+          .filter((img) => typeof img?.id === "string" && isValidDataUrl(img?.dataUrl))
+          .slice(0, MAX_IMAGES)
+          .map((img) => ({
+            id: img.id,
+            name: sanitizeName(img.name),
+            dataUrl: img.dataUrl,
+          }))
+      : [],
+    rotationMode: VALID_ROTATION_MODES.includes(parsed?.rotationMode)
+      ? parsed.rotationMode
+      : DEFAULT_STORE.rotationMode,
+    intervalSec: clampInterval(parsed?.intervalSec),
+    randomize: parsed?.randomize !== false,
+    lastIndex: Number.isInteger(parsed?.lastIndex) ? parsed.lastIndex : -1,
+  };
 }
 
 async function loadStore() {
   try {
-    const raw = await readFile(STOREPATH, "utf-8");
-    const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULTSTORE,
-      ...parsed,
-      images: Array.isArray(parsed?.images)
-        ? parsed.images.filter((img) => typeof img?.dataUrl === "string" && img.dataUrl.startsWith("data:image")).map((img) => ({
-            id: typeof img.id === "string" && img.id ? img.id : uid(),
-            name: typeof img.name === "string" && img.name ? img.name : "image",
-            dataUrl: img.dataUrl,
-          }))
-        : [],
-      rotationMode: validRotationModes.includes(parsed?.rotationMode) ? parsed.rotationMode : DEFAULTSTORE.rotationMode,
-      intervalSec: Number.isFinite(Number(parsed?.intervalSec)) && Number(parsed.intervalSec) > 0 ? Number(parsed.intervalSec) : DEFAULTSTORE.intervalSec,
-      randomize: parsed?.randomize !== false,
-      lastIndex: Number.isInteger(parsed?.lastIndex) ? parsed.lastIndex : -1,
-    };
+    const raw = await readFile(STORE_PATH, "utf-8");
+    return normalizeStore(JSON.parse(raw));
   } catch {
     const legacy = await loadLegacySingle();
     if (legacy) {
-      return { ...DEFAULTSTORE, images: [legacy] };
+      const store = { ...DEFAULT_STORE, images: [legacy] };
+      await saveStore(store);
+      return store;
     }
-    return { ...DEFAULTSTORE };
+    return { ...DEFAULT_STORE };
   }
 }
 
 async function saveStore(store) {
-  await mkdir(DATADIR, { recursive: true });
-  await writeFile(STOREPATH, JSON.stringify(store), "utf-8");
-  try { await unlink(LOGOPATH); } catch {}
+  const normalized = normalizeStore(store);
+  await mkdir(DATA_DIR, { recursive: true });
+  const tmpPath = `${STORE_PATH}.${process.pid}.tmp`;
+  await writeFile(tmpPath, JSON.stringify(normalized), "utf-8");
+  await rename(tmpPath, STORE_PATH);
+  try {
+    await unlink(LOGO_PATH);
+  } catch {
+    // legacy file already removed
+  }
+  return normalized;
 }
 
 async function loadDimensions() {
   try {
-    const raw = await readFile(DIMSPATH, "utf-8");
-    return { ...DEFAULTDIMS, ...JSON.parse(raw) };
+    const raw = await readFile(DIMS_PATH, "utf-8");
+    return { ...DEFAULT_DIMS, ...JSON.parse(raw) };
   } catch {
-    return { ...DEFAULTDIMS };
+    return { ...DEFAULT_DIMS };
   }
 }
 
 async function saveDimensions(dims) {
-  await mkdir(DATADIR, { recursive: true });
-  await writeFile(DIMSPATH, JSON.stringify(dims), "utf-8");
+  await mkdir(DATA_DIR, { recursive: true });
+  await writeFile(DIMS_PATH, JSON.stringify(dims), "utf-8");
 }
 
 const pickNextImage = (store) => {
   const imgs = store.images || [];
   if (!imgs.length) return { dataUrl: null, nextStore: store };
-  if (imgs.length === 1) return { dataUrl: imgs[0].dataUrl, nextStore: { ...store, lastIndex: 0 } };
+  if (imgs.length === 1) {
+    return { dataUrl: imgs[0].dataUrl, nextStore: { ...store, lastIndex: 0 } };
+  }
 
   let index = 0;
   if (store.randomize) {
@@ -124,7 +197,9 @@ const loadSettings = async () => {
       const validIntros = ["none", "fade", "matrix"];
       logoIntro = validIntros.includes(pluginSettings.logoIntro) ? pluginSettings.logoIntro : "none";
     }
-  } catch {}
+  } catch {
+    // settings file missing
+  }
 };
 
 loadSettings().catch(() => {});
@@ -140,14 +215,18 @@ const cardHtml = async () => {
     ? `<img id="custom-logo-home-preview-img" src="${current}" alt="Home logo preview" style="max-height:${homeMaxHeight}px;max-width:${homeMaxWidth}px;object-fit:contain;display:block;" />`
     : `<img id="custom-logo-home-preview-img" src="" alt="Home logo preview" style="max-height:${homeMaxHeight}px;max-width:${homeMaxWidth}px;object-fit:contain;display:none;" />`;
   const gallery = (store.images || []).length
-    ? store.images.map((img) => `
-      <div class="custom-logo-gallery-item" data-logo-id="${img.id}">
-        <img src="${img.dataUrl}" alt="${img.name}" class="custom-logo-gallery-thumb" />
+    ? store.images
+        .map(
+          (img) => `
+      <div class="custom-logo-gallery-item" data-logo-id="${escapeHtml(img.id)}">
+        <img src="${img.dataUrl}" alt="${escapeHtml(img.name)}" class="custom-logo-gallery-thumb" />
         <div class="custom-logo-gallery-meta">
-          <span class="custom-logo-gallery-name">${img.name}</span>
-          <button type="button" class="custom-logo-btn custom-logo-btn--remove custom-logo-remove-item" data-logo-id="${img.id}">Remove</button>
+          <span class="custom-logo-gallery-name">${escapeHtml(img.name)}</span>
+          <button type="button" class="custom-logo-btn custom-logo-btn--remove custom-logo-remove-item" data-logo-id="${escapeHtml(img.id)}">Remove</button>
         </div>
-      </div>`).join("")
+      </div>`
+        )
+        .join("")
     : `<p class="custom-logo-none" id="custom-logo-gallery-empty">No images added yet.</p>`;
 
   const checkedReload = store.rotationMode === "reload" ? "checked" : "";
@@ -199,7 +278,7 @@ const cardHtml = async () => {
           <label><input type="radio" name="cl-rotation-mode" value="interval" ${checkedInterval}> Change every interval</label>
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="font-size:0.78rem;color:var(--text-secondary);min-width:110px;">Interval (sec)</span>
-            <input id="cl-interval-sec" type="number" min="1" step="1" value="${store.intervalSec}" style="width:100px;background:var(--search-bar-bg);color:var(--text-primary,#cdd6f4);border:1px solid var(--border-light, rgba(255,255,255,0.15));border-radius:6px;padding:6px 8px;" />
+            <input id="cl-interval-sec" type="number" min="${MIN_INTERVAL_SEC}" max="${MAX_INTERVAL_SEC}" step="1" value="${store.intervalSec}" style="width:100px;background:var(--search-bar-bg);color:var(--text-primary,#cdd6f4);border:1px solid var(--border-light, rgba(255,255,255,0.15));border-radius:6px;padding:6px 8px;" />
           </div>
           <label><input type="radio" name="cl-random-mode" value="random" ${checkedRandom}> Random</label>
           <label><input type="radio" name="cl-random-mode" value="sequential" ${checkedSequential}> Sequential</label>
@@ -262,117 +341,170 @@ export default {
   routes: [
     {
       method: "get",
-      path: "settings",
+      path: "/settings",
       handler: async () => {
         await loadSettings();
-        return new Response(JSON.stringify({ hideLogoManagement, logoIntro }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return json({ hideLogoManagement, logoIntro });
       },
     },
     {
       method: "get",
-      path: "logo",
+      path: "/logo",
       handler: async () => {
-        const store = await loadStore();
-        const { dataUrl, nextStore } = pickNextImage(store);
-        if (nextStore.lastIndex !== store.lastIndex) await saveStore(nextStore);
-        return new Response(JSON.stringify({ dataUrl, rotationMode: store.rotationMode, intervalSec: store.intervalSec, randomize: store.randomize }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return withStoreLock(async () => {
+          const store = await loadStore();
+          const { dataUrl, nextStore } = pickNextImage(store);
+          if (nextStore.lastIndex !== store.lastIndex) await saveStore(nextStore);
+          return json({
+            dataUrl,
+            rotationMode: store.rotationMode,
+            intervalSec: store.intervalSec,
+            randomize: store.randomize,
+          });
+        });
       },
     },
     {
       method: "get",
-      path: "logos",
+      path: "/logos",
       handler: async () => {
         const store = await loadStore();
-        return new Response(JSON.stringify(store), { status: 200, headers: { "Content-Type": "application/json" } });
+        return json({
+          images: store.images,
+          rotationMode: store.rotationMode,
+          intervalSec: store.intervalSec,
+          randomize: store.randomize,
+        });
       },
     },
     {
       method: "post",
-      path: "logos",
+      path: "/logos",
       handler: async (req) => {
         await loadSettings();
-        if (hideLogoManagement) return new Response(JSON.stringify({ error: "Logo management is disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+        if (hideLogoManagement) return json({ error: "Logo management is disabled" }, 403);
+
         let body;
-        try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers: { "Content-Type": "application/json" } }); }
+        try {
+          body = await req.json();
+        } catch {
+          return json({ error: "Invalid JSON" }, 400);
+        }
+
         const images = Array.isArray(body?.images) ? body.images : [];
         const valid = [];
         for (const img of images) {
           const dataUrl = img?.dataUrl;
-          const name = typeof img?.name === "string" && img.name ? img.name : "image";
-          if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image")) continue;
-          if (dataUrl.length > 2 * 1024 * 1024 * 1.37) continue;
-          valid.push({ id: uid(), name, dataUrl });
+          if (!isValidDataUrl(dataUrl)) continue;
+          valid.push({ id: uid(), name: sanitizeName(img?.name), dataUrl });
         }
-        if (!valid.length) return new Response(JSON.stringify({ error: "No valid images provided" }), { status: 400, headers: { "Content-Type": "application/json" } });
-        const store = await loadStore();
-        store.images = [...store.images, ...valid];
-        await saveStore(store);
-        return new Response(JSON.stringify({ ok: true, images: store.images }), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (!valid.length) return json({ error: "No valid images provided" }, 400);
+
+        return withStoreLock(async () => {
+          const store = await loadStore();
+          if (store.images.length + valid.length > MAX_IMAGES) {
+            return json({ error: `Maximum ${MAX_IMAGES} images allowed` }, 400);
+          }
+          store.images = [...store.images, ...valid];
+          const saved = await saveStore(store);
+          return json({ ok: true, images: saved.images });
+        });
       },
     },
     {
       method: "post",
-      path: "logos/remove",
+      path: "/logos/remove",
       handler: async (req) => {
         await loadSettings();
-        if (hideLogoManagement) return new Response(JSON.stringify({ error: "Logo management is disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+        if (hideLogoManagement) return json({ error: "Logo management is disabled" }, 403);
+
         let body;
-        try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers: { "Content-Type": "application/json" } }); }
+        try {
+          body = await req.json();
+        } catch {
+          return json({ error: "Invalid JSON" }, 400);
+        }
+
         const id = body?.id;
-        if (typeof id !== "string" || !id) return new Response(JSON.stringify({ error: "Invalid id" }), { status: 400, headers: { "Content-Type": "application/json" } });
-        const store = await loadStore();
-        store.images = store.images.filter((img) => img.id !== id);
-        if (!store.images.length) store.lastIndex = -1;
-        else if (store.lastIndex >= store.images.length) store.lastIndex = 0;
-        await saveStore(store);
-        return new Response(JSON.stringify({ ok: true, images: store.images }), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (typeof id !== "string" || !id) return json({ error: "Invalid id" }, 400);
+
+        return withStoreLock(async () => {
+          const store = await loadStore();
+          const before = store.images.length;
+          store.images = store.images.filter((img) => img.id !== id);
+          if (store.images.length === before) return json({ error: "Image not found" }, 404);
+          if (!store.images.length) store.lastIndex = -1;
+          else if (store.lastIndex >= store.images.length) store.lastIndex = 0;
+          const saved = await saveStore(store);
+          return json({ ok: true, images: saved.images });
+        });
       },
     },
     {
       method: "post",
-      path: "logos/clear",
+      path: "/logos/clear",
       handler: async () => {
         await loadSettings();
-        if (hideLogoManagement) return new Response(JSON.stringify({ error: "Logo management is disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
-        const store = await loadStore();
-        store.images = [];
-        store.lastIndex = -1;
-        await saveStore(store);
-        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (hideLogoManagement) return json({ error: "Logo management is disabled" }, 403);
+
+        return withStoreLock(async () => {
+          const saved = await saveStore({ ...DEFAULT_STORE });
+          return json({ ok: true, images: saved.images });
+        });
       },
     },
     {
       method: "post",
-      path: "rotation-settings",
+      path: "/rotation-settings",
       handler: async (req) => {
         await loadSettings();
-        if (hideLogoManagement) return new Response(JSON.stringify({ error: "Logo management is disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+        if (hideLogoManagement) return json({ error: "Logo management is disabled" }, 403);
+
         let body;
-        try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers: { "Content-Type": "application/json" } }); }
-        const store = await loadStore();
-        store.rotationMode = validRotationModes.includes(body?.rotationMode) ? body.rotationMode : store.rotationMode;
-        store.intervalSec = Number.isFinite(Number(body?.intervalSec)) && Number(body.intervalSec) > 0 ? Number(body.intervalSec) : store.intervalSec;
-        store.randomize = body?.randomize !== false;
-        await saveStore(store);
-        return new Response(JSON.stringify({ ok: true, store }), { status: 200, headers: { "Content-Type": "application/json" } });
+        try {
+          body = await req.json();
+        } catch {
+          return json({ error: "Invalid JSON" }, 400);
+        }
+
+        return withStoreLock(async () => {
+          const store = await loadStore();
+          store.rotationMode = VALID_ROTATION_MODES.includes(body?.rotationMode)
+            ? body.rotationMode
+            : store.rotationMode;
+          store.intervalSec = clampInterval(body?.intervalSec, store.intervalSec);
+          store.randomize = body?.randomize !== false;
+          const saved = await saveStore(store);
+          return json({
+            ok: true,
+            store: {
+              rotationMode: saved.rotationMode,
+              intervalSec: saved.intervalSec,
+              randomize: saved.randomize,
+            },
+          });
+        });
       },
     },
     {
       method: "get",
-      path: "dimensions",
-      handler: async () => {
-        const dims = await loadDimensions();
-        return new Response(JSON.stringify(dims), { status: 200, headers: { "Content-Type": "application/json" } });
-      },
+      path: "/dimensions",
+      handler: async () => json(await loadDimensions()),
     },
     {
       method: "post",
-      path: "dimensions",
+      path: "/dimensions",
       handler: async (req) => {
         await loadSettings();
-        if (hideLogoManagement) return new Response(JSON.stringify({ error: "Dimension management is disabled" }), { status: 403, headers: { "Content-Type": "application/json" } });
+        if (hideLogoManagement) return json({ error: "Dimension management is disabled" }, 403);
+
         let body;
-        try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers: { "Content-Type": "application/json" } }); }
+        try {
+          body = await req.json();
+        } catch {
+          return json({ error: "Invalid JSON" }, 400);
+        }
+
         const n = (v, fb) => {
           const x = parseInt(v, 10);
           return !isNaN(x) && x > 0 ? x : fb;
@@ -384,7 +516,7 @@ export default {
           searchMaxWidth: n(body?.searchMaxWidth, 300),
         };
         await saveDimensions(dims);
-        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+        return json({ ok: true });
       },
     },
   ],

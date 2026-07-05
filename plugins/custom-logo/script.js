@@ -41,10 +41,13 @@ let _intervalSec = 60;
 let _randomize = true;
 let _initialized = false;
 let _hasShownInitialIntro = false;
-let _bootLogoDataUrl = undefined;
-let _bootFetchInFlight = null;
 let _bootstrapLockUntil = 0;
 let _isApplyingLogo = false;
+let _logoFetchInFlight = null;
+let _initDebounceTimer = null;
+
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGES = 32;
 
 function loadSettings() {
   if (_settingsPromise) return _settingsPromise;
@@ -76,23 +79,51 @@ async function loadDimensions() {
 }
 
 async function fetchLogo(force = false) {
-  if (!force && _cachedDataUrl !== undefined && _rotationMode !== "interval") return { dataUrl: _cachedDataUrl, rotationMode: _rotationMode, intervalSec: _intervalSec, randomize: _randomize };
-  try {
-    const res = await fetch(API);
-    if (!res.ok) { _cachedDataUrl = null; return { dataUrl: null, rotationMode: _rotationMode, intervalSec: _intervalSec, randomize: _randomize }; }
-    const data = await res.json();
-    _cachedDataUrl = data.dataUrl ?? null;
-    _rotationMode = data.rotationMode || "reload";
-    _intervalSec = Math.max(1, parseInt(data.intervalSec || 60, 10));
-    _randomize = data.randomize !== false;
+  if (!force && _cachedDataUrl !== undefined && _rotationMode !== "interval") {
     return { dataUrl: _cachedDataUrl, rotationMode: _rotationMode, intervalSec: _intervalSec, randomize: _randomize };
-  } catch {
-    _cachedDataUrl = null;
-    return { dataUrl: null, rotationMode: _rotationMode, intervalSec: _intervalSec, randomize: _randomize };
+  }
+  if (_logoFetchInFlight) return _logoFetchInFlight;
+
+  _logoFetchInFlight = (async () => {
+    try {
+      const res = await fetch(API);
+      if (!res.ok) {
+        _cachedDataUrl = null;
+        return { dataUrl: null, rotationMode: _rotationMode, intervalSec: _intervalSec, randomize: _randomize };
+      }
+      const data = await res.json();
+      _cachedDataUrl = data.dataUrl ?? null;
+      _rotationMode = data.rotationMode || "reload";
+      _intervalSec = Math.max(1, parseInt(data.intervalSec || 60, 10));
+      _randomize = data.randomize !== false;
+      return { dataUrl: _cachedDataUrl, rotationMode: _rotationMode, intervalSec: _intervalSec, randomize: _randomize };
+    } catch {
+      _cachedDataUrl = null;
+      return { dataUrl: null, rotationMode: _rotationMode, intervalSec: _intervalSec, randomize: _randomize };
+    } finally {
+      _logoFetchInFlight = null;
+    }
+  })();
+
+  return _logoFetchInFlight;
+}
+
+function restoreNativeLogo() {
+  clearRotationTimer();
+  _cachedDataUrl = null;
+  _initialized = false;
+  _introPlayed = false;
+  _hasShownInitialIntro = false;
+  if (document.querySelector(".custom-logo-img")) {
+    location.reload();
   }
 }
 
 function applyLogo(dataUrl, intro, options = {}) {
+  if (!dataUrl) {
+    restoreNativeLogo();
+    return;
+  }
   if (_isApplyingLogo) return;
   _isApplyingLogo = true;
   const animateRotation = options.animateRotation === true;
@@ -463,19 +494,43 @@ function _updateCardPreview(root, dataUrl) {
 function renderGallery(root, images) {
   const gallery = root.querySelector("#custom-logo-gallery");
   if (!gallery) return;
+  gallery.replaceChildren();
   if (!images.length) {
-    gallery.innerHTML = '<p class="custom-logo-none" id="custom-logo-gallery-empty">No images added yet.</p>';
+    const empty = document.createElement("p");
+    empty.className = "custom-logo-none";
+    empty.id = "custom-logo-gallery-empty";
+    empty.textContent = "No images added yet.";
+    gallery.appendChild(empty);
     _updateCardPreview(root, null);
     return;
   }
-  gallery.innerHTML = images.map((img) => `
-    <div class="custom-logo-gallery-item" data-logo-id="${img.id}">
-      <img src="${img.dataUrl}" alt="${img.name}" class="custom-logo-gallery-thumb" />
-      <div class="custom-logo-gallery-meta">
-        <span class="custom-logo-gallery-name">${img.name}</span>
-        <button type="button" class="custom-logo-btn custom-logo-btn--remove custom-logo-remove-item" data-logo-id="${img.id}">Remove</button>
-      </div>
-    </div>`).join("");
+  for (const img of images) {
+    const item = document.createElement("div");
+    item.className = "custom-logo-gallery-item";
+    item.dataset.logoId = img.id;
+
+    const thumb = document.createElement("img");
+    thumb.src = img.dataUrl;
+    thumb.alt = img.name || "Logo";
+    thumb.className = "custom-logo-gallery-thumb";
+
+    const meta = document.createElement("div");
+    meta.className = "custom-logo-gallery-meta";
+
+    const name = document.createElement("span");
+    name.className = "custom-logo-gallery-name";
+    name.textContent = img.name || "image";
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "custom-logo-btn custom-logo-btn--remove custom-logo-remove-item";
+    removeBtn.dataset.logoId = img.id;
+    removeBtn.textContent = "Remove";
+
+    meta.append(name, removeBtn);
+    item.append(thumb, meta);
+    gallery.appendChild(item);
+  }
   _updateCardPreview(root, images[0].dataUrl);
 }
 
@@ -511,15 +566,39 @@ async function wireResultUi(root) {
   fileInput.addEventListener("change", async () => {
     const files = Array.from(fileInput.files || []);
     if (!files.length) return;
+
+    const store = await refreshStore();
+    const existingCount = store?.images?.length ?? 0;
+    if (existingCount >= MAX_IMAGES) {
+      if (status) status.textContent = `Maximum ${MAX_IMAGES} images allowed.`;
+      fileInput.value = "";
+      return;
+    }
+
     const out = [];
+    let skipped = 0;
     for (const file of files) {
-      if (file.size > 2 * 1024 * 1024) continue;
+      if (existingCount + out.length >= MAX_IMAGES) break;
+      if (file.size > MAX_FILE_BYTES) {
+        skipped++;
+        continue;
+      }
       const dataUrl = await new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
+        reader.onerror = () => resolve(null);
         reader.readAsDataURL(file);
       });
-      out.push({ name: file.name, dataUrl });
+      if (typeof dataUrl === "string" && dataUrl.startsWith("data:image/")) {
+        out.push({ name: file.name, dataUrl });
+      } else {
+        skipped++;
+      }
+    }
+    if (!out.length) {
+      if (status) status.textContent = skipped ? "No valid images selected (max 2 MB each)." : "No images selected.";
+      fileInput.value = "";
+      return;
     }
     try {
       const res = await fetch(LOGOS_API, {
@@ -534,7 +613,7 @@ async function wireResultUi(root) {
       }
       _cachedDataUrl = undefined;
       renderGallery(root, json.images || []);
-      if (status) status.textContent = "Image(s) saved.";
+      if (status) status.textContent = skipped ? `Saved ${out.length} image(s); ${skipped} skipped.` : "Image(s) saved.";
       const first = (json.images || [])[0]?.dataUrl;
       if (first) { _introPlayed = false; _hasShownInitialIntro = false; applyLogo(first, _logoIntro); }
       ensureRotation();
@@ -561,9 +640,16 @@ async function wireResultUi(root) {
       }
       _cachedDataUrl = undefined;
       renderGallery(root, json.images || []);
-      if ((json.images || []).length) { _introPlayed = false; _hasShownInitialIntro = false; applyLogo(json.images[0].dataUrl, _logoIntro); }
-      if (status) status.textContent = "Image removed.";
-      ensureRotation();
+      if ((json.images || []).length) {
+        _introPlayed = false;
+        _hasShownInitialIntro = false;
+        applyLogo(json.images[0].dataUrl, _logoIntro);
+        if (status) status.textContent = "Image removed.";
+        ensureRotation();
+      } else {
+        if (status) status.textContent = "Image removed.";
+        restoreNativeLogo();
+      }
     } catch {
       if (status) status.textContent = "Remove failed.";
     }
@@ -574,10 +660,9 @@ async function wireResultUi(root) {
       try {
         const res = await fetch(`${LOGOS_API}/clear`, { method: "POST" });
         if (!res.ok) { if (status) status.textContent = "Remove failed."; return; }
-        _cachedDataUrl = null;
         renderGallery(root, []);
         if (status) status.textContent = "All images removed.";
-        clearRotationTimer();
+        restoreNativeLogo();
       } catch {
         if (status) status.textContent = "Remove failed.";
       }
@@ -588,7 +673,7 @@ async function wireResultUi(root) {
     saveRotationBtn.addEventListener("click", async () => {
       const rotationMode = root.querySelector('input[name="cl-rotation-mode"]:checked')?.value || "reload";
       const randomMode = root.querySelector('input[name="cl-random-mode"]:checked')?.value || "random";
-      const intervalSec = parseInt(root.querySelector("#cl-interval-sec")?.value || "60", 10);
+      const intervalSec = Math.min(86400, Math.max(1, parseInt(root.querySelector("#cl-interval-sec")?.value || "60", 10)));
       try {
         const res = await fetch(ROTATION_API, {
           method: "POST",
@@ -678,16 +763,25 @@ async function init(forceRefresh = false) {
   }
 }
 
+function scheduleInitCheck() {
+  if (_initDebounceTimer) clearTimeout(_initDebounceTimer);
+  _initDebounceTimer = setTimeout(() => {
+    _initDebounceTimer = null;
+    const hasCustomLogo = document.querySelectorAll(".custom-logo-img").length > 0;
+    const hasTargets = document.querySelector("#home-logo .logo, .results-logo");
+    if (!hasCustomLogo && hasTargets && Date.now() >= _bootstrapLockUntil && !_isApplyingLogo) {
+      init(false);
+    }
+  }, 120);
+}
+
 const obs = new MutationObserver(() => {
   document.querySelectorAll("#custom-logo-card:not([data-wired])").forEach((el) => {
     const root = el;
     root.dataset.wired = "1";
     wireResultUi(root);
   });
-
-  const hasCustomLogo = document.querySelectorAll(".custom-logo-img").length > 0;
-  const hasTargets = document.querySelector("#home-logo .logo, .results-logo");
-  if (!hasCustomLogo && hasTargets && Date.now() >= _bootstrapLockUntil && !_isApplyingLogo) init(false);
+  scheduleInitCheck();
 });
 obs.observe(document.body, { childList: true, subtree: true });
 
